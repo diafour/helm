@@ -144,7 +144,12 @@ func (e Engine) initFunMap(t *template.Template, referenceTpls map[string]render
 			},
 		}
 
-		result, err := e.renderWithReferences(templates, referenceTpls)
+		clone, err := t.Clone()
+		if err != nil {
+			return "", errors.Errorf("clone template failed: %v", err)
+		}
+
+		result, err := e.renderWithTemplate(templates, clone)
 		if err != nil {
 			return "", errors.Wrapf(err, "error during tpl function execution for %q", tpl)
 		}
@@ -184,24 +189,6 @@ func (e Engine) initFunMap(t *template.Template, referenceTpls map[string]render
 
 // render takes a map of templates/values and renders them.
 func (e Engine) render(tpls map[string]renderable) (map[string]string, error) {
-	return e.renderWithReferences(tpls, tpls)
-}
-
-// renderWithReferences takes a map of templates/values to render, and a map of
-// templates which can be referenced within them.
-func (e Engine) renderWithReferences(tpls, referenceTpls map[string]renderable) (rendered map[string]string, err error) {
-	// Basically, what we do here is start with an empty parent template and then
-	// build up a list of templates -- one for each file. Once all of the templates
-	// have been parsed, we loop through again and execute every template.
-	//
-	// The idea with this process is to make it possible for more complex templates
-	// to share common blocks, but to make the entire thing feel like a file-based
-	// template engine.
-	defer func() {
-		if r := recover(); r != nil {
-			err = errors.Errorf("rendering template failed: %v", r)
-		}
-	}()
 	t := template.New("gotpl")
 	if e.Strict {
 		t.Option("missingkey=error")
@@ -211,7 +198,29 @@ func (e Engine) renderWithReferences(tpls, referenceTpls map[string]renderable) 
 		t.Option("missingkey=zero")
 	}
 
-	e.initFunMap(t, referenceTpls)
+	e.initFunMap(t, nil)
+
+	return e.renderWithTemplate(tpls, t)
+}
+
+// renderWithTemplate takes a map of templates/values to render using
+// passed Template object.
+func (e Engine) renderWithTemplate(tpls map[string]renderable, t *template.Template) (rendered map[string]string, err error) {
+	// Basically, what we do here is start with an empty parent template and then
+	// build up a list of templates -- one for each file. Once all of the templates
+	// have been parsed, we loop through again and execute every template.
+	//
+	// The idea with this process is to make it possible for more complex templates
+	// to share common blocks, but to make the entire thing feel like a file-based
+	// template engine.
+	//
+	// Template from tpl function is a dublicate, so defines in tpl are not interfered
+	// with defines in "real" templates.
+	defer func() {
+		if r := recover(); r != nil {
+			err = errors.Errorf("rendering template failed: %v", r)
+		}
+	}()
 
 	// We want to parse the templates in a predictable order. The order favors
 	// higher-level (in file system) templates over deeply nested templates.
@@ -221,16 +230,6 @@ func (e Engine) renderWithReferences(tpls, referenceTpls map[string]renderable) 
 		r := tpls[filename]
 		if _, err := t.New(filename).Parse(r.tpl); err != nil {
 			return map[string]string{}, cleanupParseError(filename, err)
-		}
-	}
-
-	// Adding the reference templates to the template context
-	// so they can be referenced in the tpl function
-	for filename, r := range referenceTpls {
-		if t.Lookup(filename) == nil {
-			if _, err := t.New(filename).Parse(r.tpl); err != nil {
-				return map[string]string{}, cleanupParseError(filename, err)
-			}
 		}
 	}
 
