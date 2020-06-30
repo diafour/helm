@@ -104,7 +104,7 @@ func warnWrap(warn string) string {
 }
 
 // initFunMap creates the Engine's FuncMap and adds context-specific functions.
-func (e Engine) initFunMap(t *template.Template, referenceTpls map[string]renderable) {
+func (e Engine) initFunMap(t *template.Template) {
 	funcMap := funcMap()
 	includedNames := make(map[string]int)
 
@@ -198,8 +198,6 @@ func (e Engine) render(tpls map[string]renderable) (map[string]string, error) {
 		t.Option("missingkey=zero")
 	}
 
-	e.initFunMap(t, nil)
-
 	return e.renderWithTemplate(tpls, t)
 }
 
@@ -221,6 +219,8 @@ func (e Engine) renderWithTemplate(tpls map[string]renderable, t *template.Templ
 			err = errors.Errorf("rendering template failed: %v", r)
 		}
 	}()
+
+	e.initFunMap(t)
 
 	// We want to parse the templates in a predictable order. The order favors
 	// higher-level (in file system) templates over deeply nested templates.
